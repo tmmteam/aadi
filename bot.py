@@ -2,12 +2,9 @@ import asyncio
 import sqlite3
 import os
 import logging
-import random
-from pyrogram.types import InlineKeyboardMarkup
 from pyrogram import Client, filters
-from pyrogram.errors import SessionPasswordNeeded
-from pyrogram.errors import UserAlreadyParticipant
-from pyrogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
+from pyrogram.errors import SessionPasswordNeeded, UserAlreadyParticipant
+from pyrogram.types import ReplyKeyboardMarkup
 from pyromod import listen
 
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
@@ -16,6 +13,8 @@ logging.getLogger("pyrogram").setLevel(logging.ERROR)
 API_ID = 20247726
 API_HASH = "2a2654fa036e1ec6b98216d85d9fa38c"
 BOT_TOKEN = "8650625191:AAFmIVTVNRvLC8xrCpTsxru62biVaq4DJFI"
+
+OWNER_ID = 1161241513  # 👈 apna Telegram user id daal
 
 # --- SESSION CLEAN ---
 if os.path.exists("MasterBot.session"):
@@ -26,25 +25,122 @@ bot = Client("MasterBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 # --- DATABASE ---
 db = sqlite3.connect("accounts.db", check_same_thread=False)
 cursor = db.cursor()
+
 cursor.execute("CREATE TABLE IF NOT EXISTS users (phone TEXT PRIMARY KEY, session TEXT, name TEXT)")
+cursor.execute("CREATE TABLE IF NOT EXISTS auth_users (user_id INTEGER PRIMARY KEY)")
 db.commit()
 
+# --- AUTH FUNCTIONS ---
+def is_authorized(user_id):
+    if user_id == OWNER_ID:
+        return True
+    cursor.execute("SELECT * FROM auth_users WHERE user_id=?", (user_id,))
+    return cursor.fetchone() is not None
+
+async def not_auth(message):
+    await message.reply(
+        "❌ You are not authorised!\n\n"
+        "Contact 👉 @AADI_520117 for Authorization"
+    )
+
+# --- ACCESS COMMAND ---
+@bot.on_message(filters.command("access") & filters.private)
+async def access_user(client, message):
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ Only Owner can use this command")
+
+    try:
+        user_id = int(message.text.split()[1])
+    except:
+        return await message.reply("Usage: /access user_id")
+
+    cursor.execute("INSERT OR IGNORE INTO auth_users VALUES (?)", (user_id,))
+    db.commit()
+
+    await message.reply(f"✅ Access Granted to {user_id}")
+
+# --- LIST ACCESS ---
+@bot.on_message(filters.command("listaccess") & filters.private)
+async def list_access(client, message):
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ Only Owner can use this command")
+
+    cursor.execute("SELECT user_id FROM auth_users")
+    users = cursor.fetchall()
+
+    if not users:
+        return await message.reply("📭 No authorized users")
+
+    text = "📋 **Authorized Users:**\n\n"
+    for u in users:
+        text += f"• `{u[0]}`\n"
+
+    await message.reply(text)
+    
+# --- STATS OF BOT ---
+@bot.on_message(filters.command("stats") & filters.private)
+async def stats(client, message):
+
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ Only Owner")
+
+    # --- TOTAL ACCOUNTS ---
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_accounts = cursor.fetchone()[0]
+
+    # --- ACTIVE / DEAD CHECK ---
+    active = 0
+    dead = 0
+
+    sessions = get_all_accounts()
+
+    for i, s in enumerate(sessions, start=1):
+        try:
+            acc = Client(f"check{i}", session_string=s, api_id=API_ID, api_hash=API_HASH)
+            await acc.connect()
+            active += 1
+            await acc.disconnect()
+        except:
+            dead += 1
+
+    # --- AUTH USERS ---
+    cursor.execute("SELECT COUNT(*) FROM auth_users")
+    auth_users = cursor.fetchone()[0]
+
+    # --- RESPONSE ---
+    text = f"""
+📊 **BOT STATS**
+
+👤 Total Accounts: {total_accounts}
+✅ Active Accounts: {active}
+❌ Dead Accounts: {dead}
+
+🔐 Authorized Users: {auth_users}
+"""
+
+    await message.reply(text)
+
+# --- GET ACCOUNTS ---
 def get_all_accounts():
     cursor.execute("SELECT session FROM users")
     return [x[0] for x in cursor.fetchall()]
 
-def delete_account(session):
-    cursor.execute("DELETE FROM users WHERE session=?", (session,))
-    db.commit()
-
 # --- START ---
 @bot.on_message(filters.command("start"))
 async def start(client, message):
-    kb = ReplyKeyboardMarkup(
-        [["VOTE"], ["/add"]],
-        resize_keyboard=True
-    )
-    await message.reply("🤖 Refer Bot Active!", reply_markup=kb)
+
+    if is_authorized(message.from_user.id):
+        kb = ReplyKeyboardMarkup(
+            [["VOTE"], ["/add"]],
+            resize_keyboard=True
+        )
+    else:
+        kb = ReplyKeyboardMarkup(
+            [["/add"]],
+            resize_keyboard=True
+        )
+
+    await message.reply("🤖 Bot Active!", reply_markup=kb)
 
 # --- ADD ACCOUNT ---
 @bot.on_message(filters.command("add"))
@@ -76,116 +172,64 @@ async def add(client, message):
     except Exception as e:
         await message.reply(f"❌ Error: {e}")
 
-# --- LINK PARSER (FIXED) ---
-def parse_link(link):
-    try:
-        if "t.me/c/" in link:
-            parts = link.split("/")
-            return int("-100" + parts[-2]), int(parts[-1]), "private"
-
-        elif "t.me/" in link:
-            parts = link.split("/")
-            return parts[-2], int(parts[-1]), "public"
-
-    except:
-        return None, None, None
-
+# --- VOTE ---
 @bot.on_message(filters.regex("^VOTE$"))
 async def vote(client, message):
+
+    if not is_authorized(message.from_user.id):
+        return await not_auth(message)
+
     sessions = get_all_accounts()
-    
-    # STEP 1: CHANNEL INVITE LINK
-    ch_link_msg = await bot.ask(message.chat.id, "🔗 Channel invite link bhejo:")
-    ch_link = ch_link_msg.text.strip()
-    
-    # STEP 2: POST LINK
-    post_link_msg = await bot.ask(message.chat.id, "🔗 Post link bhejo:")
-    post_link = post_link_msg.text.strip()
-    
-    # Extract message ID from post link
+
+    ch_link = (await bot.ask(message.chat.id, "🔗 Channel invite link bhejo:")).text
+    post_link = (await bot.ask(message.chat.id, "🔗 Post link bhejo:")).text
+
     try:
         msg_id = int(post_link.split("/")[-1])
     except:
         return await message.reply("❌ Invalid post link")
-    
+
     joined = 0
     voted = 0
-    
+
     for i, session in enumerate(sessions, start=1):
         acc = Client(f"user{i}", session_string=session, api_id=API_ID, api_hash=API_HASH)
-        
+
         try:
             await acc.start()
-            print(f"\n🔹 Account {i} started")
-            
-            # 1. JOIN CHANNEL
+
             try:
                 await acc.join_chat(ch_link)
                 joined += 1
-                print(f"✅ Account {i} joined channel")
             except UserAlreadyParticipant:
                 joined += 1
-                print(f"⚠️ Account {i} already in channel")
-            except Exception as e:
-                print(f"❌ Join error: {e}")
+            except:
                 continue
-            
-            # 2. GET CHAT ENTITY FROM INVITE LINK (CRITICAL FIX)
-            try:
-                # 🔥 FIX: Invite link se chat fetch karo
-                chat = await acc.get_chat(ch_link)
-                chat_id = chat.id
-                print(f"✅ Chat resolved: {chat_id}")
-            except Exception as e:
-                print(f"❌ Chat resolve error: {e}")
+
+            chat = await acc.get_chat(ch_link)
+            msg = await acc.get_messages(chat.id, msg_id)
+
+            if not msg or not msg.reply_markup:
                 continue
-            
-            # 3. GET MESSAGE
-            try:
-                msg = await acc.get_messages(chat_id, msg_id)
-                if not msg:
-                    print(f"❌ Message not found")
-                    continue
-                print(f"✅ Message fetched")
-            except Exception as e:
-                print(f"❌ Fetch error: {e}")
-                continue
-            
-            # 4. CLICK BUTTON
-            if not msg.reply_markup:
-                print(f"❌ No buttons in message")
-                continue
-            
-            clicked = False
+
             for row in msg.reply_markup.inline_keyboard:
                 for btn in row:
                     try:
-                        await acc.request_callback_answer(
-                            chat_id,
-                            msg.id,
-                            btn.callback_data
-                        )
-                        print(f"✅ Clicked: {btn.text}")
+                        await acc.request_callback_answer(chat.id, msg.id, btn.callback_data)
                         voted += 1
-                        clicked = True
                         break
-                    except Exception as e:
-                        print(f"❌ Click error: {e}")
+                    except:
                         continue
-                if clicked:
-                    break
-            
-            if not clicked:
-                print(f"❌ No button could be clicked")
-                
-        except Exception as e:
-            print(f"❌ Account {i} error: {e}")
+
+        except:
+            pass
         finally:
             try:
                 await acc.stop()
             except:
                 pass
-    
+
     await message.reply(f"✅ Joined: {joined}\n✅ Voted: {voted}")
-    print("Bot starting...")
+
+print("Bot running...")
 bot.run()
