@@ -43,6 +43,22 @@ async def not_auth(message):
         "Contact 👉 @AADI_520117 for Authorization"
     )
 
+#--- REMOVE ACCESS ---
+@bot.on_message(filters.command("removeaccess") & filters.private)
+async def remove_access(client, message):
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ Only Owner can use this command")
+
+    try:
+        user_id = int(message.text.split()[1])
+    except:
+        return await message.reply("Usage: /removeaccess user_id")
+
+    cursor.execute("DELETE FROM auth_users WHERE user_id=?", (user_id,))
+    db.commit()
+
+    await message.reply(f"❌ Access Removed from {user_id}")
+
 # --- ACCESS COMMAND ---
 @bot.on_message(filters.command("access") & filters.private)
 async def access_user(client, message):
