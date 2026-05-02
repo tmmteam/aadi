@@ -12,15 +12,15 @@ logging.getLogger("pyrogram").setLevel(logging.ERROR)
 # --- CONFIG ---
 API_ID = 20247726
 API_HASH = "2a2654fa036e1ec6b98216d85d9fa38c"
-BOT_TOKEN = "8650625191:AAFmIVTVNRvLC8xrCpTsxru62biVaq4DJFI"
+BOT_TOKEN = "8632582581:AAHBZle8OvLd6aS2RU-yHUdag2nzwBbaXJM"
 
 OWNER_ID = 1161241513  # 👈 apna Telegram user id daal
 
 # --- SESSION CLEAN ---
-if os.path.exists("MasterBot.session"):
-    os.remove("MasterBot.session")
+#if os.path.exists("MasterBot.session"):
+    #os.remove("MasterBot.session")
 
-bot = Client("MasterBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+bot = Client(":memory", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- DATABASE ---
 db = sqlite3.connect("accounts.db", check_same_thread=False)
