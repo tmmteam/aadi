@@ -1,7 +1,7 @@
 # Telegram Bot
 
 ## Setup
-git clone https://github.com/tmmteam/aadi
+git clone https://github.com/
 cd aadi
 
 python3 -m venv venv
